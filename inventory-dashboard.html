@@ -1,0 +1,831 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Livestock Inventory Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #080c10;
+    --surface:   #0d1219;
+    --card:      #111720;
+    --border:    #1e2a38;
+    --border2:   #243040;
+    --accent:    #4af2a1;
+    --accent2:   #1de99b;
+    --gold:      #f5c842;
+    --red:       #ff4c6a;
+    --blue:      #4a9eff;
+    --txt:       #d8e6f0;
+    --txt2:      #7a9ab8;
+    --txt3:      #3d5470;
+    --radius:    12px;
+    --radius-sm: 8px;
+  }
+
+  html, body { height: 100%; }
+  body {
+    font-family: 'DM Mono', monospace;
+    background: var(--bg);
+    color: var(--txt);
+    min-height: 100vh;
+    padding: 0;
+    overflow-x: hidden;
+  }
+
+  /* ─── TOP BAR ─── */
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    padding: 14px 22px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .brand {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 15px;
+    color: var(--accent);
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .brand-icon { font-size: 18px; }
+
+  .load-btn {
+    padding: 8px 18px;
+    border: none;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+    background: var(--accent);
+    color: #030f07;
+    transition: all .2s;
+    white-space: nowrap;
+  }
+  .load-btn:hover:not(:disabled) { background: var(--accent2); transform: translateY(-1px); }
+  .load-btn:disabled { opacity: .45; cursor: not-allowed; }
+  .load-btn.reload { background: var(--border2); color: var(--txt2); }
+  .load-btn.reload:hover:not(:disabled) { background: var(--border); color: var(--txt); }
+
+  .pdf-btn {
+    padding: 8px 18px;
+    border: 1px solid var(--border2);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+    background: transparent;
+    color: var(--gold);
+    transition: all .2s;
+    white-space: nowrap;
+    display: none;
+  }
+  .pdf-btn:hover { background: rgba(245,200,66,.08); border-color: var(--gold); }
+
+  .prog-wrap { flex: 1; min-width: 80px; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .prog-bar  { height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), var(--blue)); border-radius: 2px; transition: width .3s ease; }
+  .status-txt { font-size: 11px; color: var(--txt3); white-space: nowrap; font-family: 'DM Mono', monospace; }
+
+  /* ─── FILTER BAR ─── */
+  .filter-bar {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 12px 22px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .filter-bar.visible { display: flex; }
+
+  .filter-label {
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--txt3);
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    margin-right: 2px;
+  }
+
+  .filter-group { display: flex; gap: 5px; align-items: center; }
+
+  .chip {
+    padding: 5px 13px;
+    border-radius: 30px;
+    border: 1px solid var(--border2);
+    background: transparent;
+    color: var(--txt2);
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all .18s;
+  }
+  .chip:hover { border-color: var(--accent); color: var(--accent); }
+  .chip.active { background: var(--accent); border-color: var(--accent); color: #030f07; font-weight: 500; }
+
+  .search-input {
+    padding: 6px 12px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border2);
+    background: var(--card);
+    color: var(--txt);
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    outline: none;
+    transition: border-color .18s;
+    width: 180px;
+  }
+  .search-input:focus { border-color: var(--accent); }
+  .search-input::placeholder { color: var(--txt3); }
+
+  /* ─── STATS ROW ─── */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    padding: 18px 22px 0;
+  }
+  .stat-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .stat-label { font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--txt3); }
+  .stat-value { font-family: 'Syne', sans-serif; font-size: 22px; font-weight: 700; color: var(--txt); }
+  .stat-value.green { color: var(--accent); }
+  .stat-value.gold  { color: var(--gold); }
+  .stat-value.red   { color: var(--red); }
+
+  /* ─── GRID ─── */
+  .grid-wrap { padding: 18px 22px 40px; }
+  .count-line { font-size: 11px; color: var(--txt3); margin-bottom: 14px; }
+  .count-line span { color: var(--txt2); }
+
+  .items-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 14px;
+  }
+
+  /* ─── ITEM CARD ─── */
+  .item-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    transition: transform .2s, border-color .2s, box-shadow .2s;
+    position: relative;
+  }
+  .item-card:hover {
+    transform: translateY(-3px);
+    border-color: var(--border2);
+    box-shadow: 0 12px 40px rgba(0,0,0,.5);
+  }
+
+  .item-img-wrap {
+    width: 100%;
+    height: 160px;
+    background: var(--surface);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+  }
+  .item-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .item-img-placeholder {
+    font-size: 52px;
+    opacity: .25;
+    user-select: none;
+  }
+
+  .status-badge {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    padding: 3px 9px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    backdrop-filter: blur(6px);
+  }
+  .status-badge.in-stock  { background: rgba(74,242,161,.15); color: var(--accent); border: 1px solid rgba(74,242,161,.3); }
+  .status-badge.sold-out  { background: rgba(255,76,106,.15); color: var(--red);    border: 1px solid rgba(255,76,106,.3); }
+
+  .cat-badge {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    padding: 3px 9px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    backdrop-filter: blur(6px);
+  }
+  .cat-badge.goat { background: rgba(74,158,255,.15); color: var(--blue);  border: 1px solid rgba(74,158,255,.3); }
+  .cat-badge.bull { background: rgba(245,200,66,.15); color: var(--gold);  border: 1px solid rgba(245,200,66,.3); }
+  .cat-badge.other{ background: rgba(120,130,150,.15); color: var(--txt2); border: 1px solid rgba(120,130,150,.2); }
+
+  .item-body { padding: 13px 14px; }
+
+  .item-name {
+    font-family: 'Syne', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--txt);
+    margin-bottom: 8px;
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .item-meta { display: flex; flex-direction: column; gap: 5px; }
+  .meta-row  { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--txt2); }
+  .meta-icon { font-size: 12px; width: 14px; flex-shrink: 0; opacity: .7; }
+  .meta-val  { color: var(--txt); font-size: 11px; }
+
+  .item-price {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+  }
+  .price-currency { font-size: 11px; color: var(--txt3); }
+  .price-val { font-family: 'Syne', sans-serif; font-size: 18px; font-weight: 700; color: var(--accent); }
+  .price-label { font-size: 10px; color: var(--txt3); margin-left: auto; }
+
+  /* ─── EMPTY / ERROR ─── */
+  .empty-state {
+    text-align: center;
+    padding: 80px 20px;
+    color: var(--txt3);
+  }
+  .empty-icon { font-size: 52px; margin-bottom: 16px; opacity: .4; }
+  .empty-title { font-family: 'Syne', sans-serif; font-size: 18px; color: var(--txt2); margin-bottom: 8px; }
+  .empty-sub { font-size: 12px; }
+
+  .err-box {
+    margin: 20px 22px;
+    background: rgba(255,76,106,.08);
+    border: 1px solid rgba(255,76,106,.25);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    font-size: 12px;
+    color: var(--red);
+  }
+  .err-box small { color: var(--txt3); display: block; margin-top: 6px; }
+
+  /* ─── PDF printing hint ─── */
+  @media print {
+    .topbar, .filter-bar { display: none !important; }
+    body { background: #fff; color: #000; }
+  }
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="brand"><span class="brand-icon">🐄</span> LIVESTOCK INVENTORY</div>
+  <button class="load-btn" id="load-btn" onclick="loadAllRecords()">⬇ Load Records</button>
+  <button class="pdf-btn" id="pdf-btn" onclick="exportPDF()">⬇ Export PDF</button>
+  <div class="prog-wrap"><div class="prog-bar" id="prog-bar"></div></div>
+  <span class="status-txt" id="status-txt">Press Load to fetch data</span>
+</div>
+
+<!-- FILTER BAR -->
+<div class="filter-bar" id="filter-bar">
+  <span class="filter-label">Category</span>
+  <div class="filter-group" id="cat-filters">
+    <button class="chip active" data-cat="all">All Items</button>
+    <button class="chip" data-cat="goat">🐐 Goats</button>
+    <button class="chip" data-cat="bull">🐂 Bulls</button>
+    <button class="chip" data-cat="other">Other</button>
+  </div>
+  <div style="width:1px;height:20px;background:var(--border2);margin:0 4px;flex-shrink:0"></div>
+  <span class="filter-label">Stock</span>
+  <div class="filter-group" id="stock-filters">
+    <button class="chip active" data-stock="total">Total</button>
+    <button class="chip" data-stock="in-stock">In Stock</button>
+    <button class="chip" data-stock="sold-out">Sold Out</button>
+  </div>
+  <div style="width:1px;height:20px;background:var(--border2);margin:0 4px;flex-shrink:0"></div>
+  <input class="search-input" id="search-input" placeholder="🔍  Search name…" oninput="applyFilters()">
+</div>
+
+<!-- MAIN -->
+<div id="app"></div>
+
+<script>
+/* ══════════════════════════════════
+   postMessage helper — DO NOT MODIFY
+══════════════════════════════════ */
+function postMessageWithResponse(message) {
+  return new Promise((resolve, reject) => {
+    const requestId = crypto.randomUUID();
+    const timer = setTimeout(() => {
+      window.removeEventListener('message', handler);
+      reject(new Error('Timeout — is this running inside Manager.io?'));
+    }, 15000);
+    function handler(event) {
+      if (event.data?.type?.endsWith('-response') && event.data?.requestId === requestId) {
+        clearTimeout(timer);
+        window.removeEventListener('message', handler);
+        resolve(event.data.body);
+      }
+    }
+    window.addEventListener('message', handler);
+    window.parent.postMessage({ ...message, requestId }, '*');
+  });
+}
+
+/* ══════════════════════════════════
+   getCustomerBatch — paginated fetch
+   Manager.io returns ≤50 records per call.
+══════════════════════════════════ */
+async function getCustomerBatch(onProgress) {
+  const allItems = [];
+  let nextToken  = null;
+  let pageNum    = 0;
+  let apiTotal   = null;
+
+  do {
+    const path = nextToken
+      ? '/api4/inventory-items?PageSize=99999&next_page_token=' + encodeURIComponent(nextToken)
+      : '/api4/inventory-items?PageSize=99999';
+
+    const data = await postMessageWithResponse({ type: 'api-request', method: 'GET', path });
+
+    const page = Array.isArray(data) ? data : (data.items || data.data || []);
+    allItems.push(...page);
+
+    nextToken = data.next_page_token || data.nextPageToken || data._links?.next?.href || null;
+
+    if (apiTotal === null) {
+      apiTotal = data.totalCount ?? data.total ?? data.count ?? data._metadata?.totalCount ?? null;
+    }
+
+    pageNum++;
+    if (onProgress) onProgress(allItems.length, apiTotal, pageNum);
+    if (pageNum >= 1000) break;
+
+  } while (nextToken);
+
+  return allItems;
+}
+
+/* ══════════════════════════════════
+   State
+══════════════════════════════════ */
+let ALL_ITEMS   = [];
+let catFilter   = 'all';
+let stockFilter = 'total';
+
+/* ══════════════════════════════════
+   loadAllRecords
+══════════════════════════════════ */
+async function loadAllRecords() {
+  const btn    = document.getElementById('load-btn');
+  const bar    = document.getElementById('prog-bar');
+  const status = document.getElementById('status-txt');
+  const app    = document.getElementById('app');
+  const fb     = document.getElementById('filter-bar');
+  const pdfBtn = document.getElementById('pdf-btn');
+
+  btn.disabled = true;
+  btn.textContent = 'Loading…';
+  bar.style.width = '0%';
+  app.innerHTML   = '';
+  fb.classList.remove('visible');
+  pdfBtn.style.display = 'none';
+
+  try {
+    const items = await getCustomerBatch((loaded, total, page) => {
+      status.textContent = total
+        ? `Page ${page} · ${loaded.toLocaleString()} / ${total.toLocaleString()} records`
+        : `Page ${page} · ${loaded.toLocaleString()} records…`;
+      if (total) bar.style.width = Math.min(95, Math.round(loaded / total * 100)) + '%';
+    });
+
+    bar.style.width = '100%';
+    status.textContent = `✓ ${items.length.toLocaleString()} records loaded`;
+    btn.textContent = '↺ Reload';
+    btn.disabled = false;
+    btn.classList.add('reload');
+    pdfBtn.style.display = 'inline-block';
+
+    ALL_ITEMS = items;
+    setupFilters();
+    fb.classList.add('visible');
+    applyFilters();
+
+  } catch (err) {
+    status.textContent = '⚠ ' + err.message;
+    btn.textContent = '↺ Retry';
+    btn.disabled = false;
+    app.innerHTML = `<div class="err-box">⚠ ${err.message}<small>Make sure this extension is running inside Manager.io</small></div>`;
+  }
+}
+
+/* ══════════════════════════════════
+   Helper: derive category from item
+   Uses item name keywords or customFields
+   Adjust field paths to match your setup
+══════════════════════════════════ */
+function getCategory(it) {
+  const i = it?.item ?? it;
+  // Try customFields2 stringArrays first, then fall back to name heuristic
+  const cf = i?.customFields2?.strings ?? {};
+  const cfKeys = Object.values(cf || {});
+  const allText = [i?.name ?? '', ...cfKeys].join(' ').toLowerCase();
+
+  // Check for customFields category field (key may vary — adapt as needed)
+  // Also do a simple keyword scan on the item name
+  if (/bull|cow|cattle|bovine/i.test(allText)) return 'bull';
+  if (/goat|caprine|nanny|buck|doe/i.test(allText)) return 'goat';
+  return 'other';
+}
+
+/* Helper: get stock status
+   Manager.io inventory items have quantity on hand.
+   We look at customFields2.decimals for quantity or a boolean flag.
+*/
+function getStockStatus(it) {
+  const i = it?.item ?? it;
+  // Try several common field names for qty
+  const dec = i?.customFields2?.decimals ?? {};
+  // Look for a qty or stock field by key (adjust to match your custom field names)
+  const qty = findDecimalByKeyword(dec, ['qty','quantity','stock','hand','count','units'])
+           ?? i?.quantityOnHand
+           ?? i?.quantity
+           ?? null;
+
+  if (qty === null) return 'unknown';
+  return qty > 0 ? 'in-stock' : 'sold-out';
+}
+
+/* Helper: scan decimal custom fields for a keyword match */
+function findDecimalByKeyword(decimals, keywords) {
+  if (!decimals || typeof decimals !== 'object') return null;
+  for (const [key, val] of Object.entries(decimals)) {
+    if (keywords.some(k => key.toLowerCase().includes(k))) {
+      return val ?? null;
+    }
+  }
+  return null;
+}
+
+/* Helper: get sale price */
+function getSalePrice(it) {
+  const i = it?.item ?? it;
+  const dec = i?.customFields2?.decimals ?? {};
+  const price = findDecimalByKeyword(dec, ['price','sale','sell','cost','rate','amount'])
+             ?? i?.unitPrice
+             ?? i?.salePrice
+             ?? null;
+  return price;
+}
+
+/* Helper: get weight */
+function getWeight(it) {
+  const i = it?.item ?? it;
+  const dec = i?.customFields2?.decimals ?? {};
+  const w = findDecimalByKeyword(dec, ['weight','kg','lb','mass','wt'])
+          ?? null;
+  return w;
+}
+
+/* Helper: get location */
+function getLocation(it) {
+  const i = it?.item ?? it;
+  const strings = i?.customFields2?.strings ?? {};
+  const loc = findStringByKeyword(strings, ['location','loc','farm','pen','shed','stall','barn','field','zone','area','place'])
+            ?? i?.division?.name
+            ?? i?.billingAddress
+            ?? null;
+  return loc;
+}
+
+function findStringByKeyword(strings, keywords) {
+  if (!strings || typeof strings !== 'object') return null;
+  for (const [key, val] of Object.entries(strings)) {
+    if (keywords.some(k => key.toLowerCase().includes(k)) && val) return val;
+  }
+  return null;
+}
+
+/* Helper: get image URL */
+function getImageURL(it) {
+  const i = it?.item ?? it;
+  const imgs = i?.customFields2?.images ?? {};
+  if (!imgs || typeof imgs !== 'object') return null;
+  const first = Object.values(imgs).find(v => v);
+  return first ? (typeof first === 'string' ? first : first.href ?? first.url ?? null) : null;
+}
+
+/* ══════════════════════════════════
+   Filter chip setup
+══════════════════════════════════ */
+function setupFilters() {
+  document.querySelectorAll('#cat-filters .chip').forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll('#cat-filters .chip').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      catFilter = btn.dataset.cat;
+      applyFilters();
+    };
+  });
+  document.querySelectorAll('#stock-filters .chip').forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll('#stock-filters .chip').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      stockFilter = btn.dataset.stock;
+      applyFilters();
+    };
+  });
+}
+
+/* ══════════════════════════════════
+   applyFilters — filter + render
+══════════════════════════════════ */
+function applyFilters() {
+  const q = (document.getElementById('search-input')?.value ?? '').toLowerCase();
+
+  let filtered = ALL_ITEMS.filter(it => {
+    const i = it?.item ?? it;
+    const name = (i?.name ?? '').toLowerCase();
+
+    // Category filter
+    const cat = getCategory(it);
+    if (catFilter !== 'all' && cat !== catFilter) return false;
+
+    // Stock filter
+    if (stockFilter !== 'total') {
+      const st = getStockStatus(it);
+      if (st !== stockFilter && st !== 'unknown') return false;
+      // If status is unknown, include in all stock views
+    }
+
+    // Search
+    if (q && !name.includes(q)) return false;
+    return true;
+  });
+
+  render(filtered, ALL_ITEMS);
+}
+
+/* ══════════════════════════════════
+   render(filtered, all)
+══════════════════════════════════ */
+function render(items, all) {
+  const app = document.getElementById('app');
+
+  if (all.length === 0) {
+    app.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">📦</div>
+        <div class="empty-title">No inventory items found</div>
+        <div class="empty-sub">Make sure your Manager.io business has inventory items set up.</div>
+      </div>`;
+    return;
+  }
+
+  /* ── Stats ── */
+  const inStock  = all.filter(it => getStockStatus(it) === 'in-stock').length;
+  const soldOut  = all.filter(it => getStockStatus(it) === 'sold-out').length;
+  const goats    = all.filter(it => getCategory(it) === 'goat').length;
+  const bulls    = all.filter(it => getCategory(it) === 'bull').length;
+
+  // Compute total value of items with price
+  let totalVal = 0;
+  all.forEach(it => {
+    const p = getSalePrice(it);
+    if (p != null) totalVal += p;
+  });
+
+  const fmt = v => v == null ? '—' : Number(v).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const fmtPrice = v => v == null ? '—' : Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const statsHTML = `
+  <div class="stats-row" id="stats-row">
+    <div class="stat-card">
+      <div class="stat-label">Total Items</div>
+      <div class="stat-value">${all.length.toLocaleString()}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">In Stock</div>
+      <div class="stat-value green">${inStock.toLocaleString()}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Sold Out</div>
+      <div class="stat-value red">${soldOut.toLocaleString()}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">🐐 Goats</div>
+      <div class="stat-value" style="color:var(--blue)">${goats.toLocaleString()}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">🐂 Bulls</div>
+      <div class="stat-value gold">${bulls.toLocaleString()}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Total Value</div>
+      <div class="stat-value gold">${totalVal > 0 ? fmtPrice(totalVal) : '—'}</div>
+    </div>
+  </div>`;
+
+  /* ── Grid ── */
+  let gridHTML;
+  if (items.length === 0) {
+    gridHTML = `
+    <div class="grid-wrap">
+      <div class="empty-state">
+        <div class="empty-icon">🔍</div>
+        <div class="empty-title">No items match your filters</div>
+        <div class="empty-sub">Try changing the category, stock, or search filter.</div>
+      </div>
+    </div>`;
+  } else {
+    const cards = items.map(it => {
+      const i      = it?.item ?? it;
+      const name   = i?.name ?? 'Unnamed Item';
+      const cat    = getCategory(it);
+      const status = getStockStatus(it);
+      const price  = getSalePrice(it);
+      const weight = getWeight(it);
+      const loc    = getLocation(it);
+      const imgUrl = getImageURL(it);
+
+      /* category badge */
+      const catLabel = cat === 'goat' ? '🐐 Goat' : cat === 'bull' ? '🐂 Bull' : 'Other';
+      const catClass = cat;
+
+      /* stock badge */
+      const stockLabel = status === 'in-stock' ? 'In Stock' : status === 'sold-out' ? 'Sold Out' : '—';
+      const stockClass = status === 'in-stock' ? 'in-stock' : status === 'sold-out' ? 'sold-out' : '';
+
+      /* image section */
+      const imgSection = imgUrl
+        ? `<img class="item-img" src="${escHTML(imgUrl)}" alt="${escHTML(name)}" onerror="this.style.display='none';this.nextSibling.style.display='flex'">`
+          + `<div class="item-img-placeholder" style="display:none">${cat==='goat'?'🐐':cat==='bull'?'🐂':'📦'}</div>`
+        : `<div class="item-img-placeholder">${cat==='goat'?'🐐':cat==='bull'?'🐂':'📦'}</div>`;
+
+      return `
+      <div class="item-card">
+        <div class="item-img-wrap">
+          ${imgSection}
+          <span class="cat-badge ${catClass}">${catLabel}</span>
+          ${stockClass ? `<span class="status-badge ${stockClass}">${stockLabel}</span>` : ''}
+        </div>
+        <div class="item-body">
+          <div class="item-name" title="${escHTML(name)}">${escHTML(name)}</div>
+          <div class="item-meta">
+            ${loc    ? `<div class="meta-row"><span class="meta-icon">📍</span><span class="meta-val">${escHTML(String(loc))}</span></div>` : ''}
+            ${weight != null ? `<div class="meta-row"><span class="meta-icon">⚖️</span><span class="meta-val">${fmt(weight)} kg</span></div>` : ''}
+            ${i?.code  ? `<div class="meta-row"><span class="meta-icon">🏷</span><span class="meta-val">${escHTML(String(i.code))}</span></div>` : ''}
+          </div>
+          <div class="item-price">
+            <span class="price-currency">PKR</span>
+            <span class="price-val">${price != null ? fmtPrice(price) : '—'}</span>
+            <span class="price-label">SALE PRICE</span>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+
+    gridHTML = `
+    <div class="grid-wrap" id="grid-wrap">
+      <div class="count-line">Showing <span>${items.length.toLocaleString()}</span> of <span>${all.length.toLocaleString()}</span> items</div>
+      <div class="items-grid" id="items-grid">${cards}</div>
+    </div>`;
+  }
+
+  app.innerHTML = statsHTML + gridHTML;
+}
+
+/* ══════════════════════════════════
+   Export PDF using html2canvas + jsPDF
+══════════════════════════════════ */
+async function exportPDF() {
+  const btn = document.getElementById('pdf-btn');
+  btn.textContent = '⏳ Generating…';
+  btn.disabled = true;
+
+  try {
+    const { jsPDF } = window.jspdf;
+    const app = document.getElementById('app');
+
+    const canvas = await html2canvas(app, {
+      backgroundColor: '#080c10',
+      scale: 1.5,
+      useCORS: true,
+      allowTaint: true,
+      logging: false,
+    });
+
+    const imgData  = canvas.toDataURL('image/jpeg', 0.92);
+    const pageW    = 210; // A4 mm
+    const pageH    = 297;
+    const imgW     = pageW;
+    const imgH     = canvas.height * imgW / canvas.width;
+
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+    // Add header text
+    pdf.setFillColor(8, 12, 16);
+    pdf.rect(0, 0, pageW, 14, 'F');
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(10);
+    pdf.setTextColor(74, 242, 161);
+    pdf.text('LIVESTOCK INVENTORY DASHBOARD', 10, 9);
+    pdf.setTextColor(100, 130, 160);
+    pdf.setFontSize(7);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(`Generated: ${new Date().toLocaleString()}`, pageW - 10, 9, { align: 'right' });
+
+    // Paginate
+    let yPos = 14;
+    let remainingH = imgH;
+    let srcY = 0;
+    const sliceH = pageH - 14;
+
+    while (remainingH > 0) {
+      const currentSliceH = Math.min(sliceH, remainingH);
+      const ratio = canvas.height / imgH;
+
+      // Slice canvas
+      const sliceCanvas = document.createElement('canvas');
+      sliceCanvas.width  = canvas.width;
+      sliceCanvas.height = Math.round(currentSliceH * ratio);
+      const ctx = sliceCanvas.getContext('2d');
+      ctx.fillStyle = '#080c10';
+      ctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
+      ctx.drawImage(canvas, 0, Math.round(srcY * ratio), canvas.width, sliceCanvas.height, 0, 0, canvas.width, sliceCanvas.height);
+
+      const sliceData = sliceCanvas.toDataURL('image/jpeg', 0.92);
+      pdf.addImage(sliceData, 'JPEG', 0, yPos, imgW, currentSliceH);
+
+      srcY       += currentSliceH;
+      remainingH -= currentSliceH;
+
+      if (remainingH > 0) {
+        pdf.addPage();
+        yPos = 0;
+      }
+    }
+
+    pdf.save(`livestock-inventory-${Date.now()}.pdf`);
+    btn.textContent = '⬇ Export PDF';
+  } catch (e) {
+    console.error(e);
+    btn.textContent = '⚠ PDF Error';
+  } finally {
+    btn.disabled = false;
+    setTimeout(() => { document.getElementById('pdf-btn').textContent = '⬇ Export PDF'; }, 3000);
+  }
+}
+
+/* ══════════════════════════════════
+   Utility: escape HTML
+══════════════════════════════════ */
+function escHTML(str) {
+  return String(str)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>
